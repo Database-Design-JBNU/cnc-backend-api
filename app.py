@@ -7,12 +7,18 @@ from mysql.connector import Error
 import datetime
 import random
 from dotenv import load_dotenv
+import joblib
+import numpy as np
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)  # Keep CORS active for your Vite client on port 5173
+
+# Load the model binary into the background worker memory cache
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'cnc_random_forest_model.pkl')
+ml_model = joblib.load(MODEL_PATH)
 
 def get_db_connection():
     try:
@@ -318,6 +324,36 @@ def handle_ai_chat():
     except Exception as e:
         print(f"[AI Chat] CRITICAL CRASH: {str(e)}")
         return jsonify({"reply": f"Backend layer was unable to connect to Ollama. Underlying reason: {str(e)}"}), 500
+
+# 7. INFERENCE ROUTE FOR MACHINE LEARNING PREDICTION
+@app.route('/api/predict', methods=['POST'])
+def predict_anomaly():
+    try:
+        # Get live telemetry features sent from your React dashboard inputs
+        data = request.json
+        
+        # Structure features in the exact order your training matrix X was built
+        # (e.g., Air temperature, Process temperature, Rotational speed, Torque, Tool wear)
+        features = np.array([[
+            float(data['air_temperature']),
+            float(data['process_temperature']),
+            float(data['rotational_speed']),
+            float(data['torque']),
+            float(data['tool_wear'])
+        ]])
+        
+        # Run real-time machine learning prediction!
+        prediction = ml_model.predict(features)[0]
+        probabilities = ml_model.predict_proba(features)[0]
+        
+        return jsonify({
+            'status': 'success',
+            'is_anomaly': int(prediction),
+            'confidence_score': float(max(probabilities))
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
