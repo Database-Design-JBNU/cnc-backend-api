@@ -54,16 +54,20 @@ def get_alerts():
             JOIN equipment e ON a.equipment_id = e.equipment_id
             ORDER BY a.triggered_at DESC;
         """)
-        alerts = cursor.fetchall()
-        for a in alerts:
-            if isinstance(a['triggered_at'], (datetime.date, datetime.datetime)):
-                a['triggered_at'] = a['triggered_at'].isoformat()
-            # Normalize 1/0 into True/False booleans
-            a['resolved'] = True if a['resolved'] == 1 else False
-            # Ensure severity casing matches your frontend filters ('High', 'Medium', 'Low')
-            if a['severity']:
-                a['severity'] = a['severity'].capitalize()
-        return jsonify(alerts)
+        rows = cursor.fetchall()
+        
+        formatted_alerts = []
+        for row in rows:
+            formatted_alerts.append({
+                'alert_id': row['alert_id'],
+                'equipment_id': row['equipment_id'],
+                'machine_name': row['machine_name'],
+                'triggered_at': row['triggered_at'].strftime('%Y-%m-%d %H:%M:%S') if hasattr(row['triggered_at'], 'strftime') else str(row['triggered_at']),
+                'severity': row['severity'].capitalize() if row['severity'] else None,
+                'message': row['message'],
+                'resolved': True if row['resolved'] == 1 else False
+            })
+        return jsonify(formatted_alerts)
     except Exception as e:
         print(f"Alerts fetch error: {e}")
         return jsonify({"error": str(e)}), 500
@@ -78,25 +82,32 @@ def get_equipment_data():
         conn = get_db_connection()
         if not conn:
             return jsonify({"error": "DB connection failed"}), 500
+        # Use dictionary=True so rows come back as clean Key-Value pairs
         cursor = conn.cursor(dictionary=True)
         
-        # Change 'equipment_telemetry' to 'predictive_maintenance'
-        query = "SELECT * FROM predictive_maintenance ORDER BY id DESC LIMIT 100"
-        
+        # 1. Query your fresh sensor_reading table from your DDL script
+        query = "SELECT * FROM sensor_reading ORDER BY reading_id DESC LIMIT 100"
         cursor.execute(query)
-        data = cursor.fetchall()
+        rows = cursor.fetchall()
         
-        # Format datetime objects & float decimals for JSON serialization safety
-        for row in data:
-            for key, val in row.items():
-                if isinstance(val, (datetime.date, datetime.datetime)):
-                    row[key] = val.isoformat()
-                elif isinstance(val, (float, int)) is False and hasattr(val, '__float__'):
-                    row[key] = float(val)
-                    
+        # 2. Format columns using your official production database table names
+        formatted_data = []
+        for row in rows:
+            formatted_data.append({
+                'id': row['reading_id'],
+                'equipment_id': row['equipment_id'],
+                'recorded_at': row['recorded_at'].strftime('%Y-%m-%d %H:%M:%S') if hasattr(row['recorded_at'], 'strftime') else str(row['recorded_at']),
+                'vibration': float(row['vibration']),          # Maps from X1_ActualVelocity
+                'temperature': float(row['temperature']),      # Maps from S1_DCBusVoltage
+                'spindle_speed': float(row['spindle_speed']),  # Maps from S1_ActualVelocity
+                'tool_wear': str(row['tool_wear']),            # Maps from tool_condition_baseline
+                'anomaly_score': float(row['anomaly_score'])
+            })
+            
         cursor.close()
         conn.close()
-        return jsonify(data)
+        return jsonify(formatted_data)
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
