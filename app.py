@@ -71,6 +71,35 @@ def get_alerts():
         cursor.close()
         conn.close()
 
+# 1b. TELEMETRY DATA ROUTE
+@app.route('/api/equipment', methods=['GET'])
+def get_equipment_data():
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "DB connection failed"}), 500
+        cursor = conn.cursor(dictionary=True)
+        
+        # Change 'equipment_telemetry' to 'predictive_maintenance'
+        query = "SELECT * FROM predictive_maintenance ORDER BY id DESC LIMIT 100"
+        
+        cursor.execute(query)
+        data = cursor.fetchall()
+        
+        # Format datetime objects & float decimals for JSON serialization safety
+        for row in data:
+            for key, val in row.items():
+                if isinstance(val, (datetime.date, datetime.datetime)):
+                    row[key] = val.isoformat()
+                elif isinstance(val, (float, int)) is False and hasattr(val, '__float__'):
+                    row[key] = float(val)
+                    
+        cursor.close()
+        conn.close()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # 2. ENRICHED EQUIPMENT SUMMARY (Prevents MachineCard.jsx from crashing)
 @app.route('/api/equipment/summary', methods=['GET'])
 def get_equipment_summary():
